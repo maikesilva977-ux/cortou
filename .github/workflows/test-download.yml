@@ -90,11 +90,13 @@ jobs:
 
       - name: Resumo final
         if: success()
-        run: echo "✅ TESTE PASSOU: download, inspeção e processamento funcionaram."
+        run: |
+          echo "✅ TESTE PASSOU: download, inspeção e processamento funcionaram."
 
       - name: Resumo final (falha)
         if: failure()
-        run: echo "❌ TESTE FALHOU: veja o passo 'Baixar vídeo' ou 'Gerar recorte de teste' acima para a causa."
+        run: |
+          echo "❌ TESTE FALHOU: veja o passo 'Baixar vídeo' ou 'Gerar recorte de teste' acima para a causa."
 
       - name: Upload do resultado
         if: success()
