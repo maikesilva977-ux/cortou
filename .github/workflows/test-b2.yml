@@ -1,0 +1,95 @@
+name: Teste B2 - Download e Processamento
+
+on:
+  workflow_dispatch:
+    inputs:
+      nome_arquivo:
+        description: 'Nome exato do arquivo no bucket B2'
+        required: true
+        default: 'snaptik_7540289204853525766_v3.mp4'
+        type: string
+
+jobs:
+  test-b2:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Instalar ffmpeg e cliente B2
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+          pip install --upgrade b2
+
+      - name: Autenticar no Backblaze B2
+        env:
+          B2_KEY_ID: ${{ secrets.B2_KEY_ID }}
+          B2_APPLICATION_KEY: ${{ secrets.B2_APPLICATION_KEY }}
+        run: |
+          b2 account authorize "$B2_KEY_ID" "$B2_APPLICATION_KEY"
+
+      - name: Marcar início do cronômetro
+        id: cronometro
+        run: echo "inicio=$(date +%s)" >> "$GITHUB_OUTPUT"
+
+      - name: Baixar vídeo do B2
+        id: download
+        env:
+          B2_BUCKET_NAME: ${{ secrets.B2_BUCKET_NAME }}
+          ARQUIVO: ${{ inputs.nome_arquivo }}
+        run: |
+          set +e
+          b2 file download "b2://$B2_BUCKET_NAME/$ARQUIVO" video_original.mp4
+          STATUS=$?
+          if [ $STATUS -ne 0 ]; then
+            echo "❌ Falha ao baixar o arquivo do B2. Verifique se o nome do arquivo e o bucket estão corretos."
+            exit 1
+          fi
+          echo "✅ Download concluído com sucesso"
+          ls -lh video_original.mp4
+
+      - name: Inspecionar vídeo baixado (ffprobe)
+        run: |
+          echo "--- Detalhes técnicos ---"
+          ffprobe -v error -show_entries format=duration,size,format_name \
+            -of default=noprint_wrappers=1 video_original.mp4
+
+      - name: Gerar recorte de teste em 9:16 (FFmpeg)
+        run: |
+          ffmpeg -y -i video_original.mp4 -t 10 \
+            -vf "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920" \
+            -c:v libx264 -c:a aac output_teste.mp4
+          echo "--- Resultado final ---"
+          ls -lh output_teste.mp4
+
+      - name: Apagar o vídeo original do B2 (limpeza)
+        if: success()
+        env:
+          B2_BUCKET_NAME: ${{ secrets.B2_BUCKET_NAME }}
+          ARQUIVO: ${{ inputs.nome_arquivo }}
+        run: |
+          b2 rm "$B2_BUCKET_NAME" "$ARQUIVO"
+          echo "🧹 Arquivo original apagado do bucket."
+
+      - name: Calcular tempo total de processamento
+        if: always()
+        run: |
+          INICIO=${{ steps.cronometro.outputs.inicio }}
+          FIM=$(date +%s)
+          echo "⏱️ Tempo total: $((FIM - INICIO)) segundos"
+
+      - name: Resumo final
+        if: success()
+        run: |
+          echo "✅ TESTE PASSOU: upload no B2, download pelo GitHub Actions e processamento com FFmpeg funcionaram."
+
+      - name: Resumo final (falha)
+        if: failure()
+        run: |
+          echo "❌ TESTE FALHOU: veja o passo com erro acima."
+
+      - name: Upload do resultado
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: teste-cortou-b2-output
+          path: output_teste.mp4
+          retention-days: 1
